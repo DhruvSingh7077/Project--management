@@ -4,156 +4,165 @@ import {
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
-import { CreateProjectDto, UpdateProjectDto } from './dto';
 import { SupabaseService } from '../supabase/supabase.service';
+import { CreateProjectDto, UpdateProjectDto } from './dto';
+import { PostgrestError } from '@supabase/supabase-js';
+import { Project, Task } from './entities/project.entity';
 
-// PascalCase table/column names
-const TABLES = {
-  project: 'Project',
-  task: 'Task',
-  ownerId: 'ownerId',
-  projectId: 'projectId',
-  createdAt: 'createdAt',
-  updatedAt: 'updatedAt',
-} as const;
+// ---------------------------------------------------------------------------
+// A minimal shim type so TypeScript always knows .data and .error exist.
+// ---------------------------------------------------------------------------
+type SimpleResult<T> = { data: T | null; error: PostgrestError | null };
+
+// Optional model shapes for convenience.
 
 @Injectable()
 export class ProjectService {
   constructor(private readonly supabase: SupabaseService) {}
 
-  // Create a new project for the logged-in user
+  // -------------------------------------------------------------------------
+  // Create a new project
+  // -------------------------------------------------------------------------
   async create(userId: string, data: CreateProjectDto) {
-    const { data: project, error } = await this.supabase.client
-      .from(TABLES.project)
+    const res = (await this.supabase.client
+      .from('Project')
       .insert({
         name: data.name,
         description: data.description ?? null,
-        [TABLES.ownerId]: userId,
+        ownerId: userId,
       })
-      .select(
-        `id,name,description,${TABLES.ownerId},${TABLES.createdAt},${TABLES.updatedAt}`,
-      )
-      .single();
+      .select('id,name,description,ownerId,createdAt,updatedAt')
+      .single()) as unknown as SimpleResult<Project>;
 
-    if (error) throw new BadRequestException(error.message);
-    return { ...project, tasks: [] };
+    if (res.error) throw new BadRequestException(res.error.message);
+    return { ...res.data!, tasks: [] };
   }
 
+  // -------------------------------------------------------------------------
   // Get all projects belonging to the user (with tasks)
+  // -------------------------------------------------------------------------
   async findAll(userId: string) {
-    const { data: projects, error } = await this.supabase.client
-      .from(TABLES.project)
-      .select(
-        `id,name,description,${TABLES.ownerId},${TABLES.createdAt},${TABLES.updatedAt}`,
-      )
-      .eq(TABLES.ownerId, userId)
-      .order(TABLES.createdAt, { ascending: false });
+    const res = (await this.supabase.client
+      .from('Project')
+      .select('id,name,description,ownerId,createdAt,updatedAt')
+      .eq('ownerId', userId)
+      .order('createdAt', { ascending: false })) as unknown as SimpleResult<
+      Project[]
+    >;
 
-    if (error) throw new BadRequestException(error.message);
-    if (!projects?.length) return [];
+    if (res.error) throw new BadRequestException(res.error.message);
+    const projects = res.data ?? [];
+    if (!projects.length) return [];
 
-    // Fetch tasks for all projects in one go
-    const ids = projects.map((p) => p.id);
-    const { data: tasks, error: tErr } = await this.supabase.client
-      .from(TABLES.task)
+    // Fetch tasks in one query
+    const projectIds = projects.map((p) => p.id);
+    const taskRes = (await this.supabase.client
+      .from('Task')
       .select('*')
-      .in(TABLES.projectId, ids);
+      .in('projectId', projectIds)) as unknown as SimpleResult<Task[]>;
 
-    if (tErr) throw new BadRequestException(tErr.message);
+    if (taskRes.error) throw new BadRequestException(taskRes.error.message);
 
-    const byProject = new Map<string, any[]>();
-    (tasks ?? []).forEach((t) => {
-      const pid = t[TABLES.projectId];
-      if (!byProject.has(pid)) byProject.set(pid, []);
-      byProject.get(pid)!.push(t);
+    const taskMap = new Map<string, Task[]>();
+    (taskRes.data ?? []).forEach((t) => {
+      const pid = t.projectId;
+      if (!taskMap.has(pid)) taskMap.set(pid, []);
+      taskMap.get(pid)!.push(t);
     });
 
     return projects.map((p) => ({
       ...p,
-      tasks: byProject.get(p.id) ?? [],
+      tasks: taskMap.get(p.id) ?? [],
     }));
   }
 
-  // Get a single project by ID, ensuring ownership (with tasks)
+  // -------------------------------------------------------------------------
+  // Get a single project (with ownership + tasks)
+  // -------------------------------------------------------------------------
   async findOne(userId: string, id: string) {
-    const { data: project, error } = await this.supabase.client
-      .from(TABLES.project)
-      .select(
-        `id,name,description,${TABLES.ownerId},${TABLES.createdAt},${TABLES.updatedAt}`,
-      )
+    const res = (await this.supabase.client
+      .from('Project')
+      .select('id,name,description,ownerId,createdAt,updatedAt')
       .eq('id', id)
-      .single();
+      .single()) as unknown as SimpleResult<Project>;
 
-    if (error?.code === 'PGRST116' || !project)
+    if (res.error?.code === 'PGRST116' || !res.data)
       throw new NotFoundException('Project not found');
-    if (error) throw new BadRequestException(error.message);
-
-    if (project[TABLES.ownerId] !== userId)
+    if (res.error) throw new BadRequestException(res.error.message);
+    if (res.data.ownerId !== userId)
       throw new ForbiddenException('Access denied');
 
-    const { data: tasks, error: tErr } = await this.supabase.client
-      .from(TABLES.task)
+    const taskRes = (await this.supabase.client
+      .from('Task')
       .select('*')
-      .eq(TABLES.projectId, id);
+      .eq('projectId', id)) as unknown as SimpleResult<Task[]>;
 
-    if (tErr) throw new BadRequestException(tErr.message);
+    if (taskRes.error) throw new BadRequestException(taskRes.error.message);
 
-    return { ...project, tasks: tasks ?? [] };
+    return { ...res.data, tasks: taskRes.data ?? [] };
   }
 
+  // -------------------------------------------------------------------------
   // Update a project — only owner can update
+  // -------------------------------------------------------------------------
   async update(userId: string, id: string, data: UpdateProjectDto) {
-    // Ownership check
-    const { data: existing, error: findErr } = await this.supabase.client
-      .from(TABLES.project)
-      .select(TABLES.ownerId)
+    // Step1–check ownership
+    const result = (await this.supabase.client
+      .from('Project')
+      .select('ownerId')
       .eq('id', id)
-      .single();
+      .single()) as unknown as SimpleResult<{ ownerId: string }>;
 
-    if (findErr?.code === 'PGRST116' || !existing)
+    if (result.error?.code === 'PGRST116' || !result.data)
       throw new NotFoundException('Project not found');
-    if (findErr) throw new BadRequestException(findErr.message);
-    if (existing[TABLES.ownerId] !== userId)
+    if (result.error) throw new BadRequestException(result.error.message);
+    if (result.data.ownerId !== userId)
       throw new ForbiddenException('Access denied');
 
+    // Step2–apply patch
     const patch: Record<string, any> = {};
     if (data.name !== undefined) patch.name = data.name;
     if (data.description !== undefined) patch.description = data.description;
 
-    if (Object.keys(patch).length) {
-      const { error: updateErr } = await this.supabase.client
-        .from(TABLES.project)
+    if (Object.keys(patch).length > 0) {
+      const updateRes = (await this.supabase.client
+        .from('Project')
         .update(patch)
-        .eq('id', id);
-      if (updateErr) throw new BadRequestException(updateErr.message);
+        .eq('id', id)
+        .select('id')) as unknown as SimpleResult<Project>;
+
+      if (updateRes.error)
+        throw new BadRequestException(updateRes.error.message);
     }
 
+    // Step3–return fresh entity
     return this.findOne(userId, id);
   }
 
+  // -------------------------------------------------------------------------
   // Delete a project — only owner can delete
+  // -------------------------------------------------------------------------
   async remove(userId: string, id: string) {
-    // Ownership check
-    const { data: existing, error: findErr } = await this.supabase.client
-      .from(TABLES.project)
-      .select(TABLES.ownerId)
+    const res = (await this.supabase.client
+      .from('Project')
+      .select('ownerId')
       .eq('id', id)
-      .single();
+      .single()) as unknown as SimpleResult<{ ownerId: string }>;
 
-    if (findErr?.code === 'PGRST116' || !existing)
+    if (res.error?.code === 'PGRST116' || !res.data)
       throw new NotFoundException('Project not found');
-    if (findErr) throw new BadRequestException(findErr.message);
-    if (existing[TABLES.ownerId] !== userId)
+    if (res.error) throw new BadRequestException(res.error.message);
+    if (res.data.ownerId !== userId)
       throw new ForbiddenException('Access denied');
 
-    const { data: deleted, error: delErr } = await this.supabase.client
-      .from(TABLES.project)
+    const delRes = (await this.supabase.client
+      .from('Project')
       .delete()
       .eq('id', id)
-      .select(`id,name,description,${TABLES.ownerId}`)
-      .single();
+      .select('id,name,description,ownerId')
+      .single()) as unknown as SimpleResult<Project>;
 
-    if (delErr) throw new BadRequestException(delErr.message);
-    return deleted;
+    if (delRes.error) throw new BadRequestException(delRes.error.message);
+    return delRes.data;
   }
 }
