@@ -2,17 +2,18 @@ import {
   Injectable,
   UnauthorizedException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
-import { PrismaService } from '../prisma.service';
-import { User } from '@prisma/client';
+import { SupabaseService } from '../supabase/supabase.service';
+import { User } from './entities/user.entity';
 
 @Injectable()
 export class AuthService {
   constructor(
-    private prisma: PrismaService,
-    private jwt: JwtService,
+    private readonly jwt: JwtService,
+    private readonly supabase: SupabaseService,
   ) {}
 
   // REGISTER
@@ -21,26 +22,33 @@ export class AuthService {
     email: string,
     password: string,
   ): Promise<{ user: User; token: string }> {
-    // Explicitly type the result
-    const existing: User | null = await this.prisma.user.findUnique({
-      where: { email },
-    });
+    // 1️⃣  Check if user already exists
+    const existing = await this.supabase.client
+      .from('User')
+      .select('*')
+      .eq('email', email)
+      .maybeSingle();
 
-    if (existing) throw new ConflictException('User already exists');
+    if (existing.error) throw new BadRequestException(existing.error.message);
+    if (existing.data) throw new ConflictException('User already exists');
 
-    const hashed: string = await bcrypt.hash(password, 10);
+    // 2️⃣  Hash password
+    const hashed = await bcrypt.hash(password, 10);
 
-    // Explicitly type the created user
-    const user: User = await this.prisma.user.create({
-      data: { name, email, password: hashed },
-    });
+    // 3️⃣  Create new user
+    const created = await this.supabase.client
+      .from('User')
+      .insert({ name, email, password: hashed })
+      .select('*')
+      .single();
 
-    // Explicitly type JWT payload and token
-    const payload: { id: string; email: string } = {
-      id: user.id,
-      email: user.email,
-    };
-    const token: string = await this.jwt.signAsync(payload);
+    if (created.error) throw new BadRequestException(created.error.message);
+
+    const user = created.data as User;
+
+    // 4️⃣  Issue JWT
+    const payload = { id: user.id, email: user.email };
+    const token = await this.jwt.signAsync(payload);
 
     return { user, token };
   }
@@ -50,20 +58,26 @@ export class AuthService {
     email: string,
     password: string,
   ): Promise<{ user: User; token: string }> {
-    const user: User | null = await this.prisma.user.findUnique({
-      where: { email },
-    });
+    // 1️⃣  Look up user by email
+    const lookup = await this.supabase.client
+      .from('User')
+      .select('*')
+      .eq('email', email)
+      .single();
 
-    if (!user) throw new UnauthorizedException('Invalid email or password');
+    if (lookup.error?.code === 'PGRST116' || !lookup.data)
+      throw new UnauthorizedException('Invalid email or password');
+    if (lookup.error) throw new BadRequestException(lookup.error.message);
 
-    const valid: boolean = await bcrypt.compare(password, user.password);
+    const user = lookup.data as User;
+
+    // 2️⃣  Compare password
+    const valid = await bcrypt.compare(password, user.password);
     if (!valid) throw new UnauthorizedException('Invalid email or password');
 
-    const payload: { id: string; email: string } = {
-      id: user.id,
-      email: user.email,
-    };
-    const token: string = await this.jwt.signAsync(payload);
+    // 3️⃣  Sign JWT
+    const payload = { id: user.id, email: user.email };
+    const token = await this.jwt.signAsync(payload);
 
     return { user, token };
   }
@@ -71,16 +85,23 @@ export class AuthService {
   // VERIFY USER (used for protected routes)
   async verify(token: string): Promise<User> {
     try {
-      const decoded: { id: string; email: string } =
-        await this.jwt.verifyAsync(token);
+      // 1️⃣  Verify token
+      const decoded = await this.jwt.verifyAsync<{ id: string; email: string }>(
+        token,
+      );
 
-      const user: User | null = await this.prisma.user.findUnique({
-        where: { id: decoded.id },
-      });
+      // 2️⃣  Retrieve user
+      const found = await this.supabase.client
+        .from('User')
+        .select('*')
+        .eq('id', decoded.id)
+        .single();
 
-      if (!user) throw new UnauthorizedException('User not found');
+      if (found.error?.code === 'PGRST116' || !found.data)
+        throw new UnauthorizedException('User not found');
+      if (found.error) throw new BadRequestException(found.error.message);
 
-      return user;
+      return found.data as User;
     } catch {
       throw new UnauthorizedException('Invalid token');
     }

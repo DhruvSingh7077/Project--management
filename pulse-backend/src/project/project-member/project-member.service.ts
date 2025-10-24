@@ -17,6 +17,17 @@ export class ProjectMemberService {
     userId: string,
     role = 'member',
   ) {
+    // Add logging to debug input
+    console.log('Adding member with:', {
+      currentUserId,
+      projectId,
+      userId,
+      role,
+    });
+
+    // Check if userId is provided
+    if (!userId) throw new BadRequestException('userId is required');
+
     // Verify current user owns the project
     const project = (await this.supabase.client
       .from('Project')
@@ -42,7 +53,10 @@ export class ProjectMemberService {
       error: { message: string } | null;
     };
 
-    if (insert.error) throw new BadRequestException(insert.error.message);
+    if (insert.error) {
+      console.log('Insert Error:', insert.error); // Log full error for debugging
+      throw new BadRequestException(insert.error.message);
+    }
     return insert.data;
   }
 
@@ -97,7 +111,6 @@ export class ProjectMemberService {
       .eq('userid', userId)) as unknown as {
       error: { message: string } | null;
     };
-
     if (deleted.error) throw new BadRequestException(deleted.error.message);
 
     return { message: 'Member removed successfully' };

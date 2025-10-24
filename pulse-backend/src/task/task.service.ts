@@ -1,58 +1,229 @@
-import { Injectable } from '@nestjs/common';
-import { CreateTaskDto } from './dto/create-task.dto';
-import { Task } from './entities/task.entity';
-import { UpdateTaskDto } from './dto/update-task.dto';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+  BadRequestException,
+} from '@nestjs/common';
+import { SupabaseService } from '../supabase/supabase.service';
 
 @Injectable()
 export class TaskService {
-  private tasks: Task[] = [];
+  constructor(private readonly supabase: SupabaseService) {}
 
-  create(dto: CreateTaskDto): Task {
-    const task: Task = {
-      id: (this.tasks.length + 1).toString(),
-      title: dto.title,
-      description: dto.description,
-      status: dto.status ?? 'pending',
-      priority: dto.priority ?? 'MEDIUM',
-      dueDate: dto.dueDate ? new Date(dto.dueDate) : undefined,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      projectId: dto.projectId,
-      assigneeId: dto.assigneeId,
+  // ▶ Create a new task inside a specific project
+  async create(userId: string, projectId: string, dto: any) {
+    const project = (await this.supabase.client
+      .from('Project')
+      .select('ownerId')
+      .eq('id', projectId)
+      .single()) as unknown as {
+      data: { ownerId: string } | null;
+      error: { message: string; code?: string } | null;
     };
 
-    this.tasks.push(task);
-    return task;
-  }
+    if (project.error?.code === 'PGRST116' || !project.data)
+      throw new NotFoundException('Project not found');
+    if (project.error) throw new BadRequestException(project.error.message);
+    if (project.data.ownerId !== userId)
+      throw new ForbiddenException('Access denied');
 
-  findAll(): Task[] {
-    return this.tasks;
-  }
-
-  findOne(id: string): Task | undefined {
-    return this.tasks.find((t) => t.id === id);
-  }
-
-  update(id: string, dto: UpdateTaskDto): Task | undefined {
-    const index = this.tasks.findIndex((t) => t.id === id);
-    if (index === -1) return undefined;
-
-    this.tasks[index] = {
-      ...this.tasks[index],
-      ...dto,
-      dueDate: dto.dueDate ? new Date(dto.dueDate) : this.tasks[index].dueDate, // ✅ fix here
-      updatedAt: new Date(),
+    const taskInsert = (await this.supabase.client
+      .from('Task')
+      .insert({
+        title: dto.title,
+        description: dto.description ?? null,
+        status: dto.status ?? 'todo',
+        dueDate: dto.dueDate ?? null,
+        assigneeId: dto.assigneeId ?? null,
+        projectId,
+      })
+      .select('*')
+      .single()) as unknown as {
+      data: any;
+      error: { message: string } | null;
     };
 
-    return this.tasks[index];
+    if (taskInsert.error)
+      throw new BadRequestException(taskInsert.error.message);
+
+    return taskInsert.data;
   }
 
-  remove(id: string): Task | undefined {
-    const index = this.tasks.findIndex((t) => t.id === id);
-    if (index === -1) return undefined;
+  // ▶ Get all tasks for a project
+  async findAll(userId: string, projectId: string) {
+    const project = (await this.supabase.client
+      .from('Project')
+      .select('ownerId')
+      .eq('id', projectId)
+      .single()) as unknown as {
+      data: { ownerId: string } | null;
+      error: { message: string; code?: string } | null;
+    };
 
-    const deleted = this.tasks[index];
-    this.tasks.splice(index, 1);
-    return deleted;
+    if (project.error?.code === 'PGRST116' || !project.data)
+      throw new NotFoundException('Project not found');
+    if (project.error) throw new BadRequestException(project.error.message);
+    if (project.data.ownerId !== userId)
+      throw new ForbiddenException('Access denied');
+
+    const tasks = (await this.supabase.client
+      .from('Task')
+      .select('*')
+      .eq('projectId', projectId)
+      .order('createdAt', { ascending: false })) as unknown as {
+      data: any[];
+      error: { message: string } | null;
+    };
+
+    if (tasks.error) throw new BadRequestException(tasks.error.message);
+
+    return tasks.data;
+  }
+
+  // ▶ Get board view (group tasks by status)
+  async getBoard(userId: string, projectId: string) {
+    const project = (await this.supabase.client
+      .from('Project')
+      .select('ownerId')
+      .eq('id', projectId)
+      .single()) as unknown as {
+      data: { ownerId: string } | null;
+      error: { message: string; code?: string } | null;
+    };
+
+    if (project.error?.code === 'PGRST116' || !project.data)
+      throw new NotFoundException('Project not found');
+    if (project.error) throw new BadRequestException(project.error.message);
+    if (project.data.ownerId !== userId)
+      throw new ForbiddenException('Access denied');
+
+    const tasks = (await this.supabase.client
+      .from('Task')
+      .select('*')
+      .eq('projectId', projectId)
+      .order('createdAt', { ascending: true })) as unknown as {
+      data: any[];
+      error: { message: string } | null;
+    };
+
+    if (tasks.error) throw new BadRequestException(tasks.error.message);
+
+    const board = {
+      todo: [] as any[],
+      in_progress: [] as any[],
+      done: [] as any[],
+    };
+
+    for (const t of tasks.data) {
+      switch (t.status) {
+        case 'in_progress':
+          board.in_progress.push(t);
+          break;
+        case 'done':
+          board.done.push(t);
+          break;
+        default:
+          board.todo.push(t);
+      }
+    }
+
+    return board;
+  }
+
+  // ▶ Update a task
+  async update(userId: string, id: string, dto: any) {
+    const task = (await this.supabase.client
+      .from('Task')
+      .select('projectId')
+      .eq('id', id)
+      .single()) as unknown as {
+      data: { projectId: string } | null;
+      error: { message: string; code?: string } | null;
+    };
+
+    if (task.error?.code === 'PGRST116' || !task.data)
+      throw new NotFoundException('Task not found');
+    if (task.error) throw new BadRequestException(task.error.message);
+
+    const project = (await this.supabase.client
+      .from('Project')
+      .select('ownerId')
+      .eq('id', task.data.projectId)
+      .single()) as unknown as {
+      data: { ownerId: string } | null;
+      error: { message: string; code?: string } | null;
+    };
+
+    if (project.error?.code === 'PGRST116' || !project.data)
+      throw new NotFoundException('Project not found');
+    if (project.error) throw new BadRequestException(project.error.message);
+    if (project.data.ownerId !== userId)
+      throw new ForbiddenException('Access denied');
+
+    const updatedTask = (await this.supabase.client
+      .from('Task')
+      .update({
+        title: dto.title,
+        description: dto.description,
+        status: dto.status,
+        assigneeId: dto.assigneeId,
+        dueDate: dto.dueDate,
+      })
+      .eq('id', id)
+      .select('*')
+      .single()) as unknown as {
+      data: any;
+      error: { message: string } | null;
+    };
+
+    if (updatedTask.error)
+      throw new BadRequestException(updatedTask.error.message);
+
+    return updatedTask.data;
+  }
+
+  // ▶ Delete a task
+  async remove(userId: string, id: string) {
+    const task = (await this.supabase.client
+      .from('Task')
+      .select('projectId')
+      .eq('id', id)
+      .single()) as unknown as {
+      data: { projectId: string } | null;
+      error: { message: string; code?: string } | null;
+    };
+
+    if (task.error?.code === 'PGRST116' || !task.data)
+      throw new NotFoundException('Task not found');
+    if (task.error) throw new BadRequestException(task.error.message);
+
+    const project = (await this.supabase.client
+      .from('Project')
+      .select('ownerId')
+      .eq('id', task.data.projectId)
+      .single()) as unknown as {
+      data: { ownerId: string } | null;
+      error: { message: string; code?: string } | null;
+    };
+
+    if (project.error?.code === 'PGRST116' || !project.data)
+      throw new NotFoundException('Project not found');
+    if (project.error) throw new BadRequestException(project.error.message);
+    if (project.data.ownerId !== userId)
+      throw new ForbiddenException('Access denied');
+
+    const deletedTask = (await this.supabase.client
+      .from('Task')
+      .delete()
+      .eq('id', id)
+      .select('*')
+      .single()) as unknown as {
+      data: any;
+      error: { message: string } | null;
+    };
+
+    if (deletedTask.error)
+      throw new BadRequestException(deletedTask.error.message);
+    return deletedTask.data;
   }
 }
