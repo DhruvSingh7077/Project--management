@@ -10,8 +10,14 @@ import { SupabaseService } from '../supabase/supabase.service';
 export class TaskService {
   constructor(private readonly supabase: SupabaseService) {}
 
-  // ▶ Create a new task inside a specific project
-  async create(userId: string, projectId: string, dto: any) {
+  // Check if user can access this project, by role
+  // allowed: which roles are allowed for the action
+  async hasProjectAccess(
+    userId: string,
+    projectId: string,
+    allowed: Array<'owner' | 'member' | 'viewer'> = ['owner', 'member', 'viewer'],
+  ) {
+    // 1) Owner check
     const project = (await this.supabase.client
       .from('Project')
       .select('ownerId')
@@ -24,8 +30,28 @@ export class TaskService {
     if (project.error?.code === 'PGRST116' || !project.data)
       throw new NotFoundException('Project not found');
     if (project.error) throw new BadRequestException(project.error.message);
-    if (project.data.ownerId !== userId)
-      throw new ForbiddenException('Access denied');
+
+    if (allowed.includes('owner') && project.data.ownerId === userId) return true;
+
+    // 2) Member check (ProjectMember uses lowercase column names)
+    const member = (await this.supabase.client
+      .from('ProjectMember')
+      .select('role')
+      .eq('projectid', projectId)
+      .eq('userid', userId)
+      .single()) as unknown as {
+      data: { role: 'member' | 'viewer' } | null;
+      error: { message: string } | null;
+    };
+
+    if (member.data && allowed.includes(member.data.role)) return true;
+
+    throw new ForbiddenException('Access denied');
+  }
+
+  // ▶ Create a new task inside a specific project (owner + member)
+  async create(userId: string, projectId: string, dto: any) {
+    await this.hasProjectAccess(userId, projectId, ['owner', 'member']);
 
     const taskInsert = (await this.supabase.client
       .from('Task')
@@ -49,22 +75,9 @@ export class TaskService {
     return taskInsert.data;
   }
 
-  // ▶ Get all tasks for a project
+  // ▶ Get all tasks for a project (owner + member + viewer)
   async findAll(userId: string, projectId: string) {
-    const project = (await this.supabase.client
-      .from('Project')
-      .select('ownerId')
-      .eq('id', projectId)
-      .single()) as unknown as {
-      data: { ownerId: string } | null;
-      error: { message: string; code?: string } | null;
-    };
-
-    if (project.error?.code === 'PGRST116' || !project.data)
-      throw new NotFoundException('Project not found');
-    if (project.error) throw new BadRequestException(project.error.message);
-    if (project.data.ownerId !== userId)
-      throw new ForbiddenException('Access denied');
+    await this.hasProjectAccess(userId, projectId, ['owner', 'member', 'viewer']);
 
     const tasks = (await this.supabase.client
       .from('Task')
@@ -80,22 +93,9 @@ export class TaskService {
     return tasks.data;
   }
 
-  // ▶ Get board view (group tasks by status)
+  // ▶ Get board view (owner + member + viewer)
   async getBoard(userId: string, projectId: string) {
-    const project = (await this.supabase.client
-      .from('Project')
-      .select('ownerId')
-      .eq('id', projectId)
-      .single()) as unknown as {
-      data: { ownerId: string } | null;
-      error: { message: string; code?: string } | null;
-    };
-
-    if (project.error?.code === 'PGRST116' || !project.data)
-      throw new NotFoundException('Project not found');
-    if (project.error) throw new BadRequestException(project.error.message);
-    if (project.data.ownerId !== userId)
-      throw new ForbiddenException('Access denied');
+    await this.hasProjectAccess(userId, projectId, ['owner', 'member', 'viewer']);
 
     const tasks = (await this.supabase.client
       .from('Task')
@@ -130,7 +130,7 @@ export class TaskService {
     return board;
   }
 
-  // ▶ Update a task
+  // ▶ Update a task (owner + member)
   async update(userId: string, id: string, dto: any) {
     const task = (await this.supabase.client
       .from('Task')
@@ -145,20 +145,7 @@ export class TaskService {
       throw new NotFoundException('Task not found');
     if (task.error) throw new BadRequestException(task.error.message);
 
-    const project = (await this.supabase.client
-      .from('Project')
-      .select('ownerId')
-      .eq('id', task.data.projectId)
-      .single()) as unknown as {
-      data: { ownerId: string } | null;
-      error: { message: string; code?: string } | null;
-    };
-
-    if (project.error?.code === 'PGRST116' || !project.data)
-      throw new NotFoundException('Project not found');
-    if (project.error) throw new BadRequestException(project.error.message);
-    if (project.data.ownerId !== userId)
-      throw new ForbiddenException('Access denied');
+    await this.hasProjectAccess(userId, task.data.projectId, ['owner', 'member']);
 
     const updatedTask = (await this.supabase.client
       .from('Task')
@@ -182,7 +169,7 @@ export class TaskService {
     return updatedTask.data;
   }
 
-  // ▶ Delete a task
+  // ▶ Delete a task (owner + member)
   async remove(userId: string, id: string) {
     const task = (await this.supabase.client
       .from('Task')
@@ -197,20 +184,7 @@ export class TaskService {
       throw new NotFoundException('Task not found');
     if (task.error) throw new BadRequestException(task.error.message);
 
-    const project = (await this.supabase.client
-      .from('Project')
-      .select('ownerId')
-      .eq('id', task.data.projectId)
-      .single()) as unknown as {
-      data: { ownerId: string } | null;
-      error: { message: string; code?: string } | null;
-    };
-
-    if (project.error?.code === 'PGRST116' || !project.data)
-      throw new NotFoundException('Project not found');
-    if (project.error) throw new BadRequestException(project.error.message);
-    if (project.data.ownerId !== userId)
-      throw new ForbiddenException('Access denied');
+    await this.hasProjectAccess(userId, task.data.projectId, ['owner', 'member']);
 
     const deletedTask = (await this.supabase.client
       .from('Task')

@@ -5,6 +5,7 @@ import {
   Delete,
   Param,
   Body,
+  Patch,
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt/jwt.guard';
@@ -45,4 +46,13 @@ export class ProjectMemberController {
   ) {
     return this.memberService.removeMember(currentUserId, projectId, userId);
   }
+  @Patch(':userId/role')
+async changeRole(
+  @User('id') currentUserId: string,
+  @Param('projectId') projectId: string,
+  @Param('userId') userId: string,
+  @Body('role') role: 'member' | 'viewer',
+) {
+  return this.memberService.changeRole(currentUserId, projectId, userId, role);
+}
 }

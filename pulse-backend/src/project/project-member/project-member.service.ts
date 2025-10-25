@@ -47,7 +47,7 @@ export class ProjectMemberService {
     const insert = (await this.supabase.client
       .from('ProjectMember')
       .insert({ projectid: projectId, userid: userId, role })
-      .select('*')
+      .select('projectId:projectid, userId:userid, role, createdAt:createdat')
       .single()) as unknown as {
       data: any;
       error: { message: string } | null;
@@ -79,11 +79,11 @@ export class ProjectMemberService {
 
     const members = (await this.supabase.client
       .from('ProjectMember')
-      .select('userid, role, createdAt')
+      .select('userId:userid, role, createdAt:createdat')
       .eq('projectid', projectId)) as unknown as {
       data: any[];
       error: { message: string } | null;
-    };
+    }; 
 
     if (members.error) throw new BadRequestException(members.error.message);
 
@@ -115,4 +115,46 @@ export class ProjectMemberService {
 
     return { message: 'Member removed successfully' };
   }
+async changeRole(
+  currentUserId: string,
+  projectId: string,
+  userId: string,
+  role: 'member' | 'viewer',
+) {
+  if (!['member', 'viewer'].includes(role)) {
+    throw new BadRequestException('Invalid role');
+  }
+
+  const project = (await this.supabase.client
+    .from('Project')
+    .select('ownerId')
+    .eq('id', projectId)
+    .single()) as unknown as {
+    data: { ownerId: string } | null;
+    error: { message: string; code?: string } | null;
+  };
+
+  if (project.error?.code === 'PGRST116' || !project.data)
+    throw new NotFoundException('Project not found');
+  if (project.error) throw new BadRequestException(project.error.message);
+  if (project.data.ownerId !== currentUserId)
+    throw new ForbiddenException('Only owner can change roles');
+
+  const updated = (await this.supabase.client
+    .from('ProjectMember')
+    .update({ role })
+    .eq('projectid', projectId)
+    .eq('userid', userId)
+    .select('userId:userid, role, createdAt:createdat')
+    .single()) as unknown as {
+    data: any;
+    error: { message: string } | null;
+  };
+
+  if (updated.error) throw new BadRequestException(updated.error.message);
+  if (!updated.data) throw new NotFoundException('Membership not found');
+
+  return updated.data;
+}
+
 }
