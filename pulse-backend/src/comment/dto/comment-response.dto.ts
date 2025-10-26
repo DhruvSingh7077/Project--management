@@ -1,5 +1,5 @@
 export class CommentResponseDto {
-  success: boolean;
+  success!: boolean;
   message?: string;
   data?: any;
   count?: number;

@@ -15,7 +15,7 @@ import { CommentService } from './comment.service';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { UpdateCommentDto } from './dto/update-comment.dto';
 import { CommentResponseDto } from './dto/comment-response.dto';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard'; // Adjust import based on your auth setup
+import { JwtAuthGuard } from '../auth/jwt/jwt.guard';
 
 @Controller('api')
 @UseGuards(JwtAuthGuard)
@@ -60,40 +60,40 @@ export class CommentController {
     };
   }
 
-  @Patch('comments/:commentId')
-  async updateComment(
-    @Param('commentId') commentId: string,
-    @Body() updateCommentDto: UpdateCommentDto,
-    @Request() req: any
-  ): Promise<CommentResponseDto> {
-    const userId = req.user.id;
+  // @Patch('comments/:commentId')
+  // async updateComment(
+  //   @Param('commentId') commentId: string,
+  //   @Body() updateCommentDto: UpdateCommentDto,
+  //   @Request() req: any
+  // ): Promise<CommentResponseDto> {
+  //   const userId = req.user.id;
     
-    const comment = await this.commentService.updateComment(
-      commentId,
-      userId,
-      updateCommentDto
-    );
+  //   const comment = await this.commentService.updateComment(
+  //     commentId,
+  //     userId,
+  //     updateCommentDto
+  //   );
     
-    return {
-      success: true,
-      message: 'Comment updated successfully',
-      data: comment
-    };
-  }
+  //   return {
+  //     success: true,
+  //     message: 'Comment updated successfully',
+  //     data: comment
+  //   };
+  // }
 
-  @Delete('comments/:commentId')
-  @HttpCode(HttpStatus.OK)
-  async deleteComment(
-    @Param('commentId') commentId: string,
-    @Request() req: any
-  ): Promise<CommentResponseDto> {
-    const userId = req.user.id;
+  // @Delete('comments/:commentId')
+  // @HttpCode(HttpStatus.OK)
+  // async deleteComment(
+  //   @Param('commentId') commentId: string,
+  //   @Request() req: any
+  // ): Promise<CommentResponseDto> {
+  //   const userId = req.user.id;
     
-    await this.commentService.deleteComment(commentId, userId);
+  //   await this.commentService.deleteComment(commentId, userId);
     
-    return {
-      success: true,
-      message: 'Comment deleted successfully'
-    };
-  }
+  //   return {
+  //     success: true,
+  //     message: 'Comment deleted successfully'
+  //   };
+  // }
 }
