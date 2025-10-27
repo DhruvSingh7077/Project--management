@@ -60,40 +60,43 @@ export class CommentController {
     };
   }
 
-  // @Patch('comments/:commentId')
-  // async updateComment(
-  //   @Param('commentId') commentId: string,
-  //   @Body() updateCommentDto: UpdateCommentDto,
-  //   @Request() req: any
-  // ): Promise<CommentResponseDto> {
-  //   const userId = req.user.id;
+  @Patch('tasks/:taskId/comments/:commentId')
+  async updateComment(
+    @Param('taskId') taskId: string,
+    @Param('commentId') commentId: string,
+    @Body() updateCommentDto: UpdateCommentDto,
+    @Request() req: any
+  ): Promise<CommentResponseDto> {
+    const userId = req.user.id;
     
-  //   const comment = await this.commentService.updateComment(
-  //     commentId,
-  //     userId,
-  //     updateCommentDto
-  //   );
+    const comment = await this.commentService.updateComment(
+      taskId,
+      commentId,
+      userId,
+      updateCommentDto
+    );
     
-  //   return {
-  //     success: true,
-  //     message: 'Comment updated successfully',
-  //     data: comment
-  //   };
-  // }
+    return {
+      success: true,
+      message: 'Comment updated successfully',
+      data: comment
+    };
+  }
 
-  // @Delete('comments/:commentId')
-  // @HttpCode(HttpStatus.OK)
-  // async deleteComment(
-  //   @Param('commentId') commentId: string,
-  //   @Request() req: any
-  // ): Promise<CommentResponseDto> {
-  //   const userId = req.user.id;
+  @Delete('tasks/:taskId/comments/:commentId')
+  @HttpCode(HttpStatus.OK)
+  async deleteComment(
+    @Param('taskId') taskId: string,
+    @Param('commentId') commentId: string,
+    @Request() req: any
+  ): Promise<CommentResponseDto> {
+    const userId = req.user.id;
     
-  //   await this.commentService.deleteComment(commentId, userId);
+    await this.commentService.deleteComment(taskId, commentId, userId);
     
-  //   return {
-  //     success: true,
-  //     message: 'Comment deleted successfully'
-  //   };
-  // }
+    return {
+      success: true,
+      message: 'Comment deleted successfully'
+    };
+  }
 }

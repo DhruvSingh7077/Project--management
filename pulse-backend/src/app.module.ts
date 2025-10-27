@@ -8,6 +8,7 @@ import { UserModule } from './user/user.module';
 import { TaskModule } from './task/task.module';
 import { SupabaseModule } from './supabase/supabase.module';
 import { CommentModule } from './comment/comment.module';
+import { LabelModule } from './label/label.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { CommentModule } from './comment/comment.module';
     UserModule,
     TaskModule,
     CommentModule,
+    LabelModule,
   ],
   controllers: [AppController],
   providers: [AppService],
