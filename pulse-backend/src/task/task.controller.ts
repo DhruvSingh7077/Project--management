@@ -7,10 +7,13 @@ import {
   Body,
   Param,
   UseGuards,
+  Request,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt/jwt.guard';
 import { User } from '@auth/user.decorator';
 import { TaskService } from './task.service';
+import { MoveTaskDto } from './dto/move-task.dto';
+import { ReorderTasksDto } from './dto/reorder-tasks.dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller('task')
@@ -80,12 +83,25 @@ export class TaskController {
   ) {
     return this.taskService.getBoard(userId, projectId);
   }
-  @Patch(':id/move')
+
+  @Patch('tasks/:taskId/move')
   async moveTask(
-    @User('id') userId: string,
-    @Param('id') id: string,
-    @Body('status') status: string,
+    @Param('taskId') taskId: string,
+    @Body() body: MoveTaskDto,
+    @Request() req: any
   ) {
-    return this.taskService.update(userId, id, { status });
+    const userId = req.user.id;
+    await this.taskService.moveTask(taskId, userId, body.toStatus, body.toPosition);
+    return { success: true, message: 'Task moved' };
+  }
+
+  @Post('tasks/reorder')
+  async reorderTasks(
+    @Body() body: ReorderTasksDto,
+    @Request() req: any
+  ) {
+    const userId = req.user.id;
+    await this.taskService.reorderTasks(userId, body.updates);
+    return { success: true, message: 'Tasks reordered' };
   }
 }
