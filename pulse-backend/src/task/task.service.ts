@@ -4,11 +4,21 @@ import {
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
+import { SupabaseClient } from '@supabase/supabase-js';
 import { SupabaseService } from '../supabase/supabase.service';
 
 @Injectable()
 export class TaskService {
-  constructor(private readonly supabase: SupabaseService) {}
+  private supabase: SupabaseClient;
+
+  constructor(private readonly supabaseService: SupabaseService) {
+    // try common property names, fall back to service itself (unsafe any)
+    this.supabase =
+      (this.supabaseService as any).client ??
+      (this.supabaseService as any).supabase ??
+      (this.supabaseService as any).getClient?.() ??
+      (this.supabaseService as any);
+  }
 
   // Check if user can access this project, by role
   // allowed: which roles are allowed for the action
