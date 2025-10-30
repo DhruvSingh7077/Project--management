@@ -28,7 +28,7 @@ export class TaskService {
     allowed: Array<'owner' | 'member' | 'viewer'> = ['owner', 'member', 'viewer'],
   ) {
     // 1) Owner check
-    const project = (await this.supabase.client
+    const project = (await this.supabase
       .from('Project')
       .select('ownerId')
       .eq('id', projectId)
@@ -44,7 +44,7 @@ export class TaskService {
     if (allowed.includes('owner') && project.data.ownerId === userId) return true;
 
     // 2) Member check (ProjectMember uses lowercase column names)
-    const member = (await this.supabase.client
+    const member = (await this.supabase
       .from('ProjectMember')
       .select('role')
       .eq('projectid', projectId)
@@ -63,7 +63,7 @@ export class TaskService {
   async create(userId: string, projectId: string, dto: any) {
     await this.hasProjectAccess(userId, projectId, ['owner', 'member']);
 
-    const taskInsert = (await this.supabase.client
+    const taskInsert = (await this.supabase
       .from('Task')
       .insert({
         title: dto.title,
@@ -89,7 +89,7 @@ export class TaskService {
   async findAll(userId: string, projectId: string) {
     await this.hasProjectAccess(userId, projectId, ['owner', 'member', 'viewer']);
 
-    const tasks = (await this.supabase.client
+    const tasks = (await this.supabase
       .from('Task')
       .select('*')
       .eq('projectId', projectId)
@@ -107,7 +107,7 @@ export class TaskService {
   async getBoard(userId: string, projectId: string) {
     await this.hasProjectAccess(userId, projectId, ['owner', 'member', 'viewer']);
 
-    const tasks = (await this.supabase.client
+    const tasks = (await this.supabase
       .from('Task')
       .select('*')
       .eq('projectId', projectId)
@@ -142,7 +142,7 @@ export class TaskService {
 
   // ▶ Update a task (owner + member)
   async update(userId: string, id: string, dto: any) {
-    const task = (await this.supabase.client
+    const task = (await this.supabase
       .from('Task')
       .select('projectId')
       .eq('id', id)
@@ -157,7 +157,7 @@ export class TaskService {
 
     await this.hasProjectAccess(userId, task.data.projectId, ['owner', 'member']);
 
-    const updatedTask = (await this.supabase.client
+    const updatedTask = (await this.supabase
       .from('Task')
       .update({
         title: dto.title,
@@ -181,7 +181,7 @@ export class TaskService {
 
   // ▶ Delete a task (owner + member)
   async remove(userId: string, id: string) {
-    const task = (await this.supabase.client
+    const task = (await this.supabase
       .from('Task')
       .select('projectId')
       .eq('id', id)
@@ -196,7 +196,7 @@ export class TaskService {
 
     await this.hasProjectAccess(userId, task.data.projectId, ['owner', 'member']);
 
-    const deletedTask = (await this.supabase.client
+    const deletedTask = (await this.supabase
       .from('Task')
       .delete()
       .eq('id', id)
@@ -252,7 +252,7 @@ export class TaskService {
     if (destErr) throw new BadRequestException(destErr.message);
 
     // remove moving task from lists if present
-    let newDestOrder = destTasks.filter((t: any) => t.id !== taskId).map((t: any) => t.id);
+    let newDestOrder = (destTasks ?? []).filter((t: any) => t.id !== taskId).map((t: any) => t.id);
     if (toPosition > newDestOrder.length) toPosition = newDestOrder.length;
     newDestOrder.splice(toPosition, 0, taskId);
 
