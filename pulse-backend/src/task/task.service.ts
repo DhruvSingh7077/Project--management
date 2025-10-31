@@ -280,11 +280,12 @@ export class TaskService {
 
       if (srcErr) throw new BadRequestException(srcErr.message);
 
-      for (let i = 0; i < srcTasks.length; i++) {
+      // Use ?. to ensure safety or fallback to empty array
+  for (let i = 0; i < (srcTasks?.length ?? 0); i++) {
         const { error } = await this.supabase
           .from('Task')
           .update({ position: i })
-          .eq('id', srcTasks[i].id);
+          .eq('id', srcTasks![i].id);
         if (error) throw new BadRequestException(error.message);
       }
     }
@@ -307,10 +308,11 @@ export class TaskService {
       .in('id', taskIds);
 
     if (fetchErr) throw new BadRequestException(fetchErr.message);
-    if (tasks.length !== taskIds.length) throw new NotFoundException('One or more tasks not found');
+    if ((tasks?.length ?? 0) !== taskIds.length) throw new NotFoundException('One or more tasks not found');
 
     // ensure user is a member of each task's project
-    const projectIds = Array.from(new Set(tasks.map((t: any) => t.projectId)));
+    const safeTasks = tasks ?? [];
+    const projectIds = Array.from(new Set(safeTasks.map((t: any) => t.projectId)));
     for (const pid of projectIds) {
       const { data: memberCheck, error: memErr } = await this.supabase
         .from('ProjectMember')
@@ -322,22 +324,26 @@ export class TaskService {
     }
 
     // build mapping of status -> current ordered list (ids)
-    const statuses = Array.from(new Set(updates.map(u => u.toStatus || tasks.find(t => t.id === u.taskId).status)));
+    
+if (safeTasks.length === 0) {
+  throw new NotFoundException('No tasks found for mapping'); // Or handle gracefully depending on context
+}
+    const statuses = Array.from(new Set(updates.map(u => u.toStatus ?? safeTasks.find(t => t.id === u.taskId)?.status)));
     const statusCurrentMap: Record<string, string[]> = {};
     for (const s of statuses) {
       const { data: items = [], error: err } = await this.supabase
         .from('Task')
         .select('id')
-        .eq('projectId', tasks[0].projectId) // assume same project for this batch; if cross-project needed, run per-project
+        .eq('projectId', safeTasks[0].projectId) // assume same project for this batch; if cross-project needed, run per-project
         .eq('status', s)
         .order('position', { ascending: true });
       if (err) throw new BadRequestException(err.message);
-      statusCurrentMap[s] = items.map((it: any) => it.id);
+      statusCurrentMap[s] = (items ?? []).map((it: any) => it.id);
     }
 
     // apply updates by status
     for (const u of updates) {
-      const currentStatus = tasks.find((t: any) => t.id === u.taskId).status;
+      const currentStatus = safeTasks.find((t: any) => t.id === u.taskId)?.status ?? 'unknown';
       const targetStatus = u.toStatus ?? currentStatus;
 
       // ensure the task is removed from its current list
