@@ -365,19 +365,7 @@ if (safeTasks.length === 0) {
         if (error) throw new BadRequestException(error.message);
       }
     }
-    // remove that part
-    // persist new positions for each status group
-    for (const s of Object.keys(statusCurrentMap)) {
-      const list = statusCurrentMap[s];
-      for (let i = 0; i < list.length; i++) {
-        const id = list[i];
-        const { error } = await this.supabase
-          .from('Task')
-          .update({ position: i, status: s })
-          .eq('id', id);
-        if (error) throw new BadRequestException(error.message);
-      }
-    }
+  
 
     return { success: true };
   }
