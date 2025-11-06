@@ -1,3 +1,3 @@
 export class AssignLabelDto {
-  labelId: string;
+  labelId!: string;
 }

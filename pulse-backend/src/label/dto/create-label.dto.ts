@@ -1,4 +1,4 @@
 export class CreateLabelDto {
-  name: string;
+  name!: string;
   color?: string;
 }
